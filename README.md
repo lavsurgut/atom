@@ -2,6 +2,8 @@
 Simple web ui/embedded IoT project using python and twisted.
 It can be an example for a small embedded project where web UI is needed.
 
+In this example web UI is used to control small two wheeled rover with AVR328p micro in place.
+
 
 # USAGE
 mc - folder contains example implementation for an avr328p board with GY-88 and TB6612FNG driver curcuit.
