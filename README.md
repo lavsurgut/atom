@@ -4,6 +4,10 @@ It can be an example for a small embedded project where web UI is needed.
 
 In this example web UI is used to control small two wheeled rover with AVR328p micro in place.
 
+Rover can perform following:
+1) It can move one wheel or both wheels (left, right, forward commands)
+2) It can store sensors data in EEPROM and send it later by a separate command (read from eeprom)
+
 
 # USAGE
 mc - folder contains example implementation for an avr328p board with GY-88 and TB6612FNG driver curcuit.
