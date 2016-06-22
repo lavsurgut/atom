@@ -1,0 +1,30 @@
+
+
+.btn {
+  margin: 5px 0;
+}
+
+.navbar .container {
+  width: auto;
+}
+
+svg {
+  font: 10px sans-serif;
+}
+
+.axis path,
+.axis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+
+.line {
+  fill: none;
+  stroke-width: 1.5px;
+}
+
+
+.liquidFillGaugeText { font-family: Helvetica; font-weight: bold; }
+
+
