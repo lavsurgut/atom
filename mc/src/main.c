@@ -69,6 +69,8 @@ static void MotorInit(void);
 static void MotorControl(uint8_t in1A, uint8_t in2A, uint16_t frequencyA, uint8_t in1B, uint8_t in2B,
                          uint16_t frequencyB);
 
+static int16_t bmp085ReadInt(uint8_t registerAddr);
+
 //control
 volatile uint8_t gMode = 0;
 
@@ -78,17 +80,25 @@ volatile uint8_t gMsgReceiveIdx = 0;
 
 static uint8_t msgUART[38] = {0};
 
+//BMP085
+
+static uint8_t bmp085WriteAddr = 0xEF;
+
+static uint8_t bmp085ReadAddr = 0xEE;
+
+static uint16_t bmp085CalibrValues[11] = {0};
+
 int main(void) {
 
     USARTinit();
     I2CInit();
 
-    //MotorInit();
+    MotorInit();
 
     sei();
 
 
-
+    int16_t temp;
 
     /**********************************************************/
 
@@ -99,12 +109,14 @@ int main(void) {
 
         messiUartTransmitStart();
 
-
+        temp = bmp085ReadInt(0xAA);
         //MotorControl(1, 0, 300, 0, 0, 0);
 
-        //_delay_ms(5000);
+       // _delay_ms(5000);
 
         //MotorControl(0, 0, 300, 0, 0, 0);
+
+        //_delay_ms(5000);
 
         messiUartTransmitString(msgUART, 38);
 
@@ -116,19 +128,65 @@ int main(void) {
 
 }
 
+int16_t bmp085ReadInt(uint8_t registerAddr)
+{
+    int16_t value;
+    uint8_t cmdSetReadingPoint[2] = {bmp085WriteAddr, registerAddr};
+    uint8_t msgSetReadingPoint[1] = {0};
+
+    uint8_t cmdRead[1] = {bmp085ReadAddr};
+    uint8_t msgRead[2] = {0};
+
+    I2CDo(msgSetReadingPoint, 0, cmdSetReadingPoint, 2);
+    //I2CDo(msgRead, 2, cmdRead, 1);
+
+    value = (int16_t) (msgRead[0] << 8) | msgRead[1];
+
+    msgUART[0] = msgRead[0];
+
+    msgUART[1] = msgRead[1];
+
+    return value;
+}
+
+//void bmp085Calibration()
+//{
+//    //must read 6 values before going to the next measurement
+//
+//
+//    ac1 = bmp085ReadInt(0xAA);
+//    ac2 = bmp085ReadInt(0xAC);
+//    ac3 = bmp085ReadInt(0xAE);
+//    ac4 = bmp085ReadInt(0xB0);
+//    ac5 = bmp085ReadInt(0xB2);
+//    ac6 = bmp085ReadInt(0xB4);
+//    b1 = bmp085ReadInt(0xB6);
+//    b2 = bmp085ReadInt(0xB8);
+//    mb = bmp085ReadInt(0xBA);
+//    mc = bmp085ReadInt(0xBC);
+//    md = bmp085ReadInt(0xBE);
+//}
+//
+//float bmp085ReadTempValues(void) {
+//
+//
+//    return magnHeadingDegrees;
+//}
+
 void PWMInit(void) {
 
-    // set CTC mode
-    TCCR1A = TCCR1A | (1 << WGM10);
+    //PWM phase and freq correct mode
+    TCCR1A = TCCR1A & ~(1 << WGM10);
     TCCR1A = TCCR1A & ~(1 << WGM11);
 
     TCCR1B = TCCR1B & ~(1 << WGM12);
     TCCR1B = TCCR1B | (1 << WGM13);
 
-    // set a prescaler to 64
+    ICR1 = 0xFFFF;
+    // set TOP to 16bit
 
-    TCCR1B = TCCR1B | (1 << CS11) | (1 << CS10);
-    TCCR0B = TCCR1B & ~(1 << CS12);
+    TCCR1B |= (1 << CS10);
+    // START the timer with no prescaler
     // set to output OCR1A,B registers
     DDRB = DDRB | (1 << DDB1) | (1 << DDB2);
 
@@ -154,14 +212,9 @@ void MotorInit(void) {
 void PWMSwitch(uint8_t isOn) {
     if (isOn == 0) {
         //switch off wave generation
-        TCCR1A = TCCR1A & ~(1 << COM1A1) & ~(1 << COM1A0);
+        TCCR1A = TCCR1A & ~(1 << COM1A1) & ~(1 << COM1B1);
     } else {
-        //For generating a waveform output in CTC mode, the OC0A,B output can be set to toggle its logical
-        //level on each compare match by setting the Compare Output mode bits to toggle mode
-        TCCR1A = TCCR1A | (1 << COM1A0);
-        TCCR1A = TCCR1A & ~(1 << COM1A1);
-
-
+        TCCR1A |= (1 << COM1A1)|(1 << COM1B1);
     }
 }
 
@@ -186,7 +239,14 @@ void MotorControl(uint8_t in1A, uint8_t in2A, uint16_t frequencyA, uint8_t in1B,
     } else {
         PORTC = PORTC & ~(1 << PORTC3);
     }
-    OCR1A = ((PWM_BEAT / frequencyA) - (2 * PWM_PRESCALER)) / (2 * PWM_PRESCALER);
+
+    OCR1A = 0xBFFF;
+    // set PWM for 25% duty cycle @ 16bit
+
+    OCR1B = 0x3FFF;
+    // set PWM for 75% duty cycle @ 16bit
+
+    //OCR1A = ((PWM_BEAT / frequencyA) - (2 * PWM_PRESCALER)) / (2 * PWM_PRESCALER);
     //OCR0B = ((PWM_BEAT/frequencyB) - (2*PWM_PRESCALER))/(2*PWM_PRESCALER);
 
 
@@ -196,9 +256,9 @@ void MotorControl(uint8_t in1A, uint8_t in2A, uint16_t frequencyA, uint8_t in1B,
 
 void USARTinit(void) {
     //Baud rate setup
-    //UBRR=f/(16*band)-1 f=1MHz band=9600,
+    //UBRR=f/(16*band)-1 f=12MHz band=9600,
     UBRR0H = 0;
-    UBRR0L = 6;
+    UBRR0L = 77;
     //normal async duplex mode
     UCSR0A = UCSR0A & ~(1 << U2X0) & ~(1 << MPCM0);
 
@@ -299,10 +359,11 @@ void USARTTransmit(unsigned char data) {
 
 void I2CInit(void) {
 
-    TWBR = 2;    // Set bit rate register (Baudrate). Defined in header file.
+    TWBR = 112;    // Set bit rate register (Baudrate).
     TWDR = 0xFF; // Default content = SDA released.
     TWCR = TWCR | (1 << TWEN);
     TWCR = TWCR & ~(1 << TWINT) & ~(1 << TWSTA) & ~(1 << TWSTO) & ~(1 << TWEA);
+
 }
 
 void I2CStart(void) {

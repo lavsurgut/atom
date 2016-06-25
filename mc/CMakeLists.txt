@@ -59,9 +59,8 @@ set(AVR_UPLOADTOOL_PORT usb)
 # AVR and fuses needs to be set
 ##########################################################################
 set(AVR_MCU atmega328p)
-
 set(AVR_H_FUSE 0xd9)
-set(AVR_L_FUSE 0x62)
+set(AVR_L_FUSE 0xf7)
 
 ### END TOOLCHAIN SETUP AREA #############################################
 
@@ -90,13 +89,13 @@ message(STATUS "Current L_FUSE is set to: ${AVR_L_FUSE}")
 # set build type
 ##########################################################################
 if(NOT CMAKE_BUILD_TYPE)
-   set(CMAKE_BUILD_TYPE Release)
+    set(CMAKE_BUILD_TYPE Release)
 endif(NOT CMAKE_BUILD_TYPE)
 
 ##########################################################################
 # needs to be defined for AVR toolchain
 ##########################################################################
-set(MCU_SPEED "1000000")
+set(MCU_SPEED "12000000")
 
 ##########################################################################
 # some cmake cross-compile necessities
@@ -105,13 +104,13 @@ if(DEFINED ENV{AVR_FIND_ROOT_PATH})
     set(CMAKE_FIND_ROOT_PATH $ENV{AVR_FIND_ROOT_PATH})
 else(DEFINED ENV{AVR_FIND_ROOT_PATH})
     if(EXISTS "/opt/local/avr")
-      set(CMAKE_FIND_ROOT_PATH "/opt/local/avr")
+        set(CMAKE_FIND_ROOT_PATH "/opt/local/avr")
     elseif(EXISTS "/usr/avr")
-      set(CMAKE_FIND_ROOT_PATH "/usr/avr")
+        set(CMAKE_FIND_ROOT_PATH "/usr/avr")
     elseif(EXISTS "/usr/lib/avr")
-      set(CMAKE_FIND_ROOT_PATH "/usr/lib/avr")
+        set(CMAKE_FIND_ROOT_PATH "/usr/lib/avr")
     else(EXISTS "/opt/local/avr")
-      message(FATAL_ERROR "Please set AVR_FIND_ROOT_PATH in your environment.")
+        message(FATAL_ERROR "Please set AVR_FIND_ROOT_PATH in your environment.")
     endif(EXISTS "/opt/local/avr")
 endif(DEFINED ENV{AVR_FIND_ROOT_PATH})
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
@@ -132,18 +131,18 @@ message(STATUS "Set CMAKE_SYSTEM_LIBRARY_PATH to ${CMAKE_SYSTEM_LIBRARY_PATH}")
 # set compiler options for build types
 ##########################################################################
 if(CMAKE_BUILD_TYPE MATCHES Release)
-   set(CMAKE_C_FLAGS_RELEASE "-Os")
-   set(CMAKE_CXX_FLAGS_RELEASE "-Os")
+    set(CMAKE_C_FLAGS_RELEASE "-Os")
+    set(CMAKE_CXX_FLAGS_RELEASE "-Os")
 endif(CMAKE_BUILD_TYPE MATCHES Release)
 
 if(CMAKE_BUILD_TYPE MATCHES RelWithDebInfo)
-   set(CMAKE_C_FLAGS_RELWITHDEBINFO "-Os -save-temps -g -gdwarf-3 -gstrict-dwarf")
-   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-Os -save-temps -g -gdwarf-3 -gstrict-dwarf")
+    set(CMAKE_C_FLAGS_RELWITHDEBINFO "-Os -save-temps -g -gdwarf-3 -gstrict-dwarf")
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-Os -save-temps -g -gdwarf-3 -gstrict-dwarf")
 endif(CMAKE_BUILD_TYPE MATCHES RelWithDebInfo)
 
 if(CMAKE_BUILD_TYPE MATCHES Debug)
-   set(CMAKE_C_FLAGS_DEBUG "-O0 -save-temps -g -gdwarf-3 -gstrict-dwarf")
-   set(CMAKE_CXX_FLAGS_DEBUG "-O0 -save-temps -g -gdwarf-3 -gstrict-dwarf")
+    set(CMAKE_C_FLAGS_DEBUG "-O0 -save-temps -g -gdwarf-3 -gstrict-dwarf")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -save-temps -g -gdwarf-3 -gstrict-dwarf")
 endif(CMAKE_BUILD_TYPE MATCHES Debug)
 
 ##########################################################################
@@ -193,10 +192,9 @@ add_subdirectory(src)
 
 
 #set(SOURCE_FILES
- #   Makefile)
+#   Makefile)
 
 #add_executable(avr_learning ${SOURCE_FILES} main.c)
-
 
 
 
