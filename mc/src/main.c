@@ -2,6 +2,7 @@
 #include <util/delay.h>
 #include <avr/interrupt.h>
 #include <stdio.h>
+#include <avr/eeprom.h>
 
 
 //Normal mode
@@ -14,10 +15,6 @@
 #define MESSI_USART_START_CHR 'M'
 #define MESSI_USART_END_CHR 'E'
 #define MESSI_USART_ESC_CHR 'x'
-
-#define PWM_BEAT 1000000
-#define PWM_PRESCALER 64
-
 
 static void USARTinit(void);
 
@@ -69,7 +66,19 @@ static void MotorInit(void);
 static void MotorControl(uint8_t in1A, uint8_t in2A, uint16_t frequencyA, uint8_t in1B, uint8_t in2B,
                          uint16_t frequencyB);
 
+static void bmp085Calibration(void);
+
+static int16_t bmp085GetTemperature(int16_t ut);
+
+static uint32_t bmp085ReadUP(void);
+
+static int32_t bmp085GetPressure(uint32_t up);
+
 static int16_t bmp085ReadInt(uint8_t registerAddr);
+
+static void mpu6050Init(void);
+
+static void mpu6050ReadAcc(void);
 
 //control
 volatile uint8_t gMode = 0;
@@ -80,41 +89,96 @@ volatile uint8_t gMsgReceiveIdx = 0;
 
 static uint8_t msgUART[38] = {0};
 
+static uint8_t OSS = 0;
+
 //BMP085
 
-static uint8_t bmp085WriteAddr = 0xEF;
+static uint8_t bmp085WriteAddr = 0xEE;
 
-static uint8_t bmp085ReadAddr = 0xEE;
+static uint8_t bmp085ReadAddr = 0xEF;
 
-static uint16_t bmp085CalibrValues[11] = {0};
+static int16_t bmp085CalibrValuesInt[11] = {0};
+
+static int32_t bmp085Temperature = 0;
+
+//MPU6050
+
+
+static uint8_t mpu6050WriteAddr = 0xD0;
+
+static uint8_t mpu6050ReadAddr = 0xD1;
+
+
+// macro for easier usage
+#define read_eeprom_word(address) eeprom_read_word ((const uint16_t*)address)
+#define write_eeprom_word(address,value) eeprom_write_word ((uint16_t*)address,(uint16_t)value)
+#define update_eeprom_word(address,value) eeprom_update_word ((uint16_t*)address,(uint16_t)value)
+
+#define read_eeprom_array(address,value_p,length) eeprom_read_block ((void *)value_p, (const void *)address, length)
+#define write_eeprom_array(address,value_p,length) eeprom_write_block ((const void *)value_p, (void *)address, length)
+
+
+//declare an eeprom array
+//unsigned int EEMEM  my_eeprom_array[10];
+
+// declare a ram array
+//unsigned int my_ram_array[10];
+
+//declare an eeprom array
+unsigned int EEMEM  my_eeprom_array[10];
+
+// declare a ram array and initialize
+unsigned int my_ram_array[5]={1,2,3,4,5};
+
+unsigned int my_ram_array2[5]={6,7,8,9,10};
+
+// declare another ram array
+unsigned int my_other_ram_array[5];
 
 int main(void) {
 
     USARTinit();
-    I2CInit();
 
+    I2CInit();
     MotorInit();
 
     sei();
 
 
-    int16_t temp;
+    int16_t temperature;
+    int32_t pressure;
 
     /**********************************************************/
 
     _delay_ms(10);
+
+    mpu6050Init();
+    bmp085Calibration();
 
     while (1) {
 
 
         messiUartTransmitStart();
 
-        temp = bmp085ReadInt(0xAA);
-        //MotorControl(1, 0, 300, 0, 0, 0);
+        //temperature = bmp085GetTemperature(bmp085ReadUT());
+        //pressure = bmp085GetPressure(bmp085ReadUP());
 
-       // _delay_ms(5000);
+        //mpu6050ReadAcc();
 
-        //MotorControl(0, 0, 300, 0, 0, 0);
+        //msgUART[0] = (uint8_t) (temperature >> 8);
+        //msgUART[1] = (uint8_t) (temperature & 0x00FF);
+
+        //msgUART[2] = (uint8_t) (pressure >> 8);
+        //msgUART[3] = (uint8_t) (pressure & 0x00FF);
+        //MotorControl(1, 0, 0, 1, 0, 0);
+        //ftemp = magnReadValues();
+        //_delay_ms(5000);
+
+        //MotorControl(0, 1, 0, 0, 1, 0);
+
+        //_delay_ms(5000);
+
+        //MotorControl(0, 0, 0, 0, 0, 0);
 
         //_delay_ms(5000);
 
@@ -128,6 +192,146 @@ int main(void) {
 
 }
 
+void mpu6050Init(void)
+{
+    uint8_t cmdWrite[2] = {mpu6050WriteAddr, 0x68};
+    uint8_t msgWrite[1] = {0};
+
+    I2CDo(msgWrite, 1, cmdWrite, 2);
+}
+
+void mpu6050ReadAcc(void)
+{
+    uint8_t cmdSetReadingPoint[2] = {mpu6050WriteAddr, 0x3B};
+    uint8_t msgSetReadingPoint[1] = {0};
+
+    uint8_t cmdRead[1] = {mpu6050ReadAddr};
+    uint8_t msgRead[14] = {0};
+
+    uint16_t x,y,z;
+
+    I2CDo(msgSetReadingPoint, 0, cmdSetReadingPoint, 2);
+    I2CDo(msgRead, 14, cmdRead, 1);
+
+    x = (msgRead[0] << 8) | msgRead[1];
+    y = (msgRead[2] << 8) | msgRead[3];
+    z = (msgRead[4] << 8) | msgRead[5];
+
+    msgUART[4] = (uint8_t) (z >> 8);
+    msgUART[5] = (uint8_t) (z & 0x00FF);
+
+}
+
+void bmp085Calibration(void)
+{
+    bmp085CalibrValuesInt[0] = bmp085ReadInt(0xAA);
+    bmp085CalibrValuesInt[1] = bmp085ReadInt(0xAC);
+    bmp085CalibrValuesInt[2] = bmp085ReadInt(0xAE);
+    bmp085CalibrValuesInt[3] = bmp085ReadInt(0xB0);
+    bmp085CalibrValuesInt[4] = bmp085ReadInt(0xB2);
+    bmp085CalibrValuesInt[5] = bmp085ReadInt(0xB4);
+    bmp085CalibrValuesInt[6] = bmp085ReadInt(0xB6);
+    bmp085CalibrValuesInt[7] = bmp085ReadInt(0xB8);
+    bmp085CalibrValuesInt[8] = bmp085ReadInt(0xBA);
+    bmp085CalibrValuesInt[9] = bmp085ReadInt(0xBC);
+    bmp085CalibrValuesInt[10] = bmp085ReadInt(0xBE);
+}
+
+int32_t bmp085GetPressure(uint32_t up)
+{
+    int32_t x1, x2, x3, b3, b6, p;
+    uint32_t b4, b7;
+
+    b6 = bmp085Temperature - 4000;
+    // Calculate B3
+    x1 = (bmp085CalibrValuesInt[7] * (b6 * b6)>>12)>>11;
+    x2 = (bmp085CalibrValuesInt[1] * b6)>>11;
+    x3 = x1 + x2;
+    b3 = (((((int32_t)bmp085CalibrValuesInt[0])*4 + x3)<<OSS) + 2)>>2;
+
+    // Calculate B4
+    x1 = (bmp085CalibrValuesInt[2] * b6)>>13;
+    x2 = (bmp085CalibrValuesInt[6] * ((b6 * b6)>>12))>>16;
+    x3 = ((x1 + x2) + 2)>>2;
+    b4 = (bmp085CalibrValuesInt[3] * (uint32_t)(x3 + 32768))>>15;
+
+    b7 = ((uint32_t)(up - (uint32_t)(b3)) * (uint32_t)(50000>>OSS));
+    if (b7 < 0x80000000)
+        p = (b7<<1)/b4;
+    else
+        p = (b7/b4)<<1;
+
+    x1 = (p>>8) * (p>>8);
+    x1 = (x1 * 3038)>>16;
+    x2 = (-7357 * p)>>16;
+    p += (x1 + x2 + 3791)>>4;
+
+    return p;
+}
+
+// Read the uncompensated pressure value
+uint32_t bmp085ReadUP(void)
+{
+    uint32_t  up = 0;
+
+    uint8_t cmdWrite[2] = {bmp085WriteAddr, 0xF4};
+    uint8_t msgWrite[1] = {0x34 + (OSS<<6)};
+
+    uint8_t cmdSetReadingPoint[2] = {bmp085WriteAddr, 0xF6};
+    uint8_t msgSetReadingPoint[1] = {0};
+
+    uint8_t cmdRead[1] = {bmp085ReadAddr};
+    uint8_t msgRead[3] = {0};
+
+
+    // Write 0x34+(OSS<<6) into register 0xF4
+    // Request a pressure reading w/ oversampling setting
+    I2CDo(msgWrite, 1, cmdWrite, 2);
+
+    // Wait for conversion, delay time dependent on OSS
+    _delay_ms(2 + (3<<OSS));
+
+    // Read register 0xF6 (MSB), 0xF7 (LSB), and 0xF8 (XLSB)
+
+    I2CDo(msgSetReadingPoint, 0, cmdSetReadingPoint, 2);
+    I2CDo(msgRead, 3, cmdRead, 1);
+
+    up = (((uint32_t) msgRead[0] << 16) | ((uint32_t) msgRead[1] << 8) | (uint32_t) msgRead[2]) >> (8-OSS);
+
+    return up;
+}
+
+
+
+int16_t bmp085GetTemperature(int16_t ut)
+{
+    int32_t x1, x2;
+
+    x1 = (((int32_t)ut - (int32_t)bmp085CalibrValuesInt[5])*(int32_t)bmp085CalibrValuesInt[4]) >> 15;
+    x2 = ((int32_t)bmp085CalibrValuesInt[9] << 11)/(x1 + bmp085CalibrValuesInt[10]);
+    bmp085Temperature = x1 + x2;
+
+    return ((bmp085Temperature + 8)>>4);
+}
+
+// Read the uncompensated temperature value
+int16_t bmp085ReadUT(void)
+{
+    int16_t ut;
+    uint8_t cmdWrite[2] = {bmp085WriteAddr, 0xF4};
+    uint8_t msgWrite[1] = {0x2E};
+
+    I2CDo(msgWrite, 1, cmdWrite, 2);
+
+    // Wait at least 4.5ms
+    _delay_ms(5);
+
+    // Read two bytes from registers 0xF6 and 0xF7
+    ut = bmp085ReadInt(0xF6);
+    return ut;
+}
+
+
 int16_t bmp085ReadInt(uint8_t registerAddr)
 {
     int16_t value;
@@ -138,40 +342,12 @@ int16_t bmp085ReadInt(uint8_t registerAddr)
     uint8_t msgRead[2] = {0};
 
     I2CDo(msgSetReadingPoint, 0, cmdSetReadingPoint, 2);
-    //I2CDo(msgRead, 2, cmdRead, 1);
+    I2CDo(msgRead, 2, cmdRead, 1);
 
     value = (int16_t) (msgRead[0] << 8) | msgRead[1];
 
-    msgUART[0] = msgRead[0];
-
-    msgUART[1] = msgRead[1];
-
     return value;
 }
-
-//void bmp085Calibration()
-//{
-//    //must read 6 values before going to the next measurement
-//
-//
-//    ac1 = bmp085ReadInt(0xAA);
-//    ac2 = bmp085ReadInt(0xAC);
-//    ac3 = bmp085ReadInt(0xAE);
-//    ac4 = bmp085ReadInt(0xB0);
-//    ac5 = bmp085ReadInt(0xB2);
-//    ac6 = bmp085ReadInt(0xB4);
-//    b1 = bmp085ReadInt(0xB6);
-//    b2 = bmp085ReadInt(0xB8);
-//    mb = bmp085ReadInt(0xBA);
-//    mc = bmp085ReadInt(0xBC);
-//    md = bmp085ReadInt(0xBE);
-//}
-//
-//float bmp085ReadTempValues(void) {
-//
-//
-//    return magnHeadingDegrees;
-//}
 
 void PWMInit(void) {
 
@@ -217,7 +393,8 @@ void PWMSwitch(uint8_t isOn) {
         TCCR1A |= (1 << COM1A1)|(1 << COM1B1);
     }
 }
-
+// Function sends commands to TB6612FNG, see datasheet for details
+// provide 16 bit value for duty cycle of 1A or 1B PWM output in frequencyA,B variables
 void MotorControl(uint8_t in1A, uint8_t in2A, uint16_t frequencyA, uint8_t in1B, uint8_t in2B, uint16_t frequencyB) {
     if (in1A == 1) {
         PORTC = PORTC | (1 << PORTC0);
@@ -240,10 +417,10 @@ void MotorControl(uint8_t in1A, uint8_t in2A, uint16_t frequencyA, uint8_t in1B,
         PORTC = PORTC & ~(1 << PORTC3);
     }
 
-    OCR1A = 0xBFFF;
+    OCR1A = frequencyA;
     // set PWM for 25% duty cycle @ 16bit
 
-    OCR1B = 0x3FFF;
+    OCR1B = frequencyB;
     // set PWM for 75% duty cycle @ 16bit
 
     //OCR1A = ((PWM_BEAT / frequencyA) - (2 * PWM_PRESCALER)) / (2 * PWM_PRESCALER);
@@ -359,7 +536,7 @@ void USARTTransmit(unsigned char data) {
 
 void I2CInit(void) {
 
-    TWBR = 112;    // Set bit rate register (Baudrate).
+    TWBR = 0x07;    // Set bit rate register (Baudrate).
     TWDR = 0xFF; // Default content = SDA released.
     TWCR = TWCR | (1 << TWEN);
     TWCR = TWCR & ~(1 << TWINT) & ~(1 << TWSTA) & ~(1 << TWSTO) & ~(1 << TWEA);
