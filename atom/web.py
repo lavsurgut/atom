@@ -1,7 +1,7 @@
 from twisted.web.template import Element, renderer, XMLFile
 from twisted.python.filepath import FilePath
 
-class HelloElement(Element):
+class MainElement(Element):
     loader = XMLFile(FilePath('templates/template.xml'))
 
     def __init__(self, name):

@@ -8,23 +8,16 @@
   width: auto;
 }
 
-svg {
-  font: 10px sans-serif;
-}
 
-.axis path,
-.axis line {
-  fill: none;
-  stroke: #000;
-  shape-rendering: crispEdges;
-}
+.gauge {
+    width: 250px;
+    height: 250px;
+    display: inline-block;
+    margin: 10px 0;
+  }
 
-.line {
-  fill: none;
-  stroke-width: 1.5px;
-}
-
-
-.liquidFillGaugeText { font-family: Helvetica; font-weight: bold; }
-
-
+#gg5, #gg4 {
+        width:200px; height:160px;
+        display: inline-block;
+        margin: 1em;
+      }

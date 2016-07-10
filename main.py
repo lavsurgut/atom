@@ -1,21 +1,20 @@
 from klein import Klein
 
-from serial.serialutil import SerialException
 
 from twisted.internet.serialport import SerialPort
 from twisted.web.static import File
 
-from atom.serial import USBClient
-from atom.ws import EchoFactory
+from atom.usb import USBRouterProtocol
+from atom.ws import WSRouterFactory
 
-from atom.web import HelloElement
+from atom.web import MainElement
 
 app = Klein()
 
 
 @app.route('/')
-def home(request, name='world'):
-    return HelloElement(name)
+def home(request, name=''):
+    return MainElement(name)
 
 
 @app.route('/static/', branch=True)
@@ -26,11 +25,13 @@ def static(request):
 from txws import WebSocketFactory
 from twisted.internet import reactor
 
-reactor.listenTCP(5600, WebSocketFactory(EchoFactory()))
+wsFactory = WSRouterFactory()
+usbClient = USBRouterProtocol()
 
-try:
-    SerialPort(USBClient(), '/dev/ttyUSB0', reactor, baudrate='9600')
-except SerialException:
-    print('Connection failed.')
+reactor.listenTCP(5600, WebSocketFactory(wsFactory))
+
+SerialPort(usbClient, '/dev/ttyUSB0', reactor, baudrate='9600')
+
+wsFactory.setSrcClients(usbClient.getClients())
 
 resource = app.resource
