@@ -4,20 +4,25 @@
 #include <stdio.h>
 #include <avr/eeprom.h>
 
+#define PI 3.14528f
+
 #define MESSI_USART_START_CHR 'M'
 #define MESSI_USART_END_CHR 'E'
 #define MESSI_USART_ESC_CHR 'x'
 
-#define TIMERBASE 0x6D84//0xB6C2
-//#define TIMERBASE 0xF9E6
+#define TIMERBASE 0xB6C2
 
 static void USARTinit(void);
 
 static uint8_t USARTReceive(void);
 
+static void USARTReceiveArr(uint8_t *msgPtr);
+
 static void USARTTransmitString(char *dataPtr);
 
 static void USARTTransmit(unsigned char data);
+
+static void USARTTransmitFloat(float number);
 
 static void messiUartTransmitStart(void);
 
@@ -73,27 +78,28 @@ static float bmp085calcAltitude(int32_t pressure);
 
 static int16_t bmp085ReadInt(uint8_t registerAddr);
 
-static void adxl345Init(void);
+static void mpu6050Init(void);
 
-static void adxl345ReadAcc(void);
+static void mpu6050ReadAcc(void);
 
-//static void adxl345BiasCalc(void);
+static void mpu6050BiasCalc(void);
 
-static void adxl345CalcAcc(void);
-
-static void adxl345SetRange(uint8_t range, uint8_t fullResolution);
+static void mpu6050CalcAcc(void);
 
 static void activateHW(void);
 
 static void timerInit(void);
 
 //control
+volatile uint8_t gMode = 0;
+//
 volatile uint8_t gCommand = 0;
 
 volatile uint8_t gSpeed = 0;
 
 static uint8_t msgUART[38] = {0};
 
+volatile uint8_t gSwitchedTimer = 0;
 
 //BMP085
 
@@ -107,54 +113,56 @@ static uint16_t bmp085CalibrValuesUInt[3] = {0};
 
 static int32_t bmp085Temperature = 0;
 
+
 static uint8_t OSS = 0;
 
 
+//MPU6050
 
+static uint8_t mpu6050SensivityRegister = 0;
 
-static uint8_t adxl345WriteAddr = 0xA6;
+static uint8_t mpu6050WriteAddr = 0xD0;
 
-static uint8_t adxl345ReadAddr = 0xA7;
+static uint8_t mpu6050ReadAddr = 0xD1;
 
-static int16_t adxl345AccData[3] = {0};
+static int16_t mpu6050Sensivity = 16384;
 
-static int16_t adxl345BiasData[3] = {-268, 170, -2156};
+static int16_t mpu6050AccData[3] = {0};
 
-static int16_t adxl345BiasCycleCnt = 100;
+static int16_t mpu6050BiasData[3] = {375, 700, 1738};
 
-volatile float adxl345CalcAccData[3] = {0};
+static int16_t mpu6050BiasCycleCnt = 100;
 
-static float adxl345Scale = 0;
+volatile float mpu6050CalcAccData[3] = {0};
 
-static uint8_t gSensorUByteData[400] = {0};
-static uint8_t gSensorTempData[200] = {0};
+//static uint8_t gSensorUByteData[800] = {0};
+//static int16_t gSensor2ByteData[400] = {0};
 
-volatile int16_t temperature = 0;
-volatile float altitude = 0;
-
-static uint8_t gTempOffset = 2;
+volatile int16_t temperature;
+volatile float altitude;
 
 volatile uint16_t gTimerCounter = 0;
 volatile uint16_t gTimerPremCounter = 0;
 
-volatile uint16_t gSendEEPROMDataIdx = 0;
-
-volatile uint16_t gTimeCountSum = 200;
+volatile uint8_t gSendEEPROMDataIdx = 0;
 
 #define read_eeprom_array(address, value_p, length) eeprom_read_block ((void *)value_p, (const void *)address, length)
 #define write_eeprom_array(address, value_p, length) eeprom_write_block ((const void *)value_p, (void *)address, length)
 
 
 //declare an eeprom array
-uint8_t EEMEM gEEPROMUByteArray[400];
+//uint8_t EEMEM gEEPROMUByteArray[800];
 
+
+
+char tempS[50];
 
 int main(void) {
 
 
     int32_t pressure;
-    float fTemperature = 0;
 
+    int16_t temp;
     uint16_t arrFloat[3];
     uint8_t leftWheelFwd, leftWheelBck, rightWheelFwd, rightWheelBck;
 
@@ -165,136 +173,164 @@ int main(void) {
     USARTinit();
 
     I2CInit();
+    MotorInit();
 
     sei();
 
+    mpu6050Init();
+
     bmp085Calibration();
 
-    adxl345SetRange(16, 1);
-    adxl345Init();
-    //adxl345BiasCalc();
+
+
+
+    //mpu6050BiasCalc();
+    //activateHW();
 
     _delay_ms(10);
 
     while (1) {
-        //measure data
-        messiUartTransmitStart();
-        adxl345ReadAcc();
-        adxl345CalcAcc();
 
-        temperature = (bmp085GetTemperature(bmp085ReadUT())) - gTempOffset;
-        fTemperature = (float) temperature / (float) 10;
-        pressure = bmp085GetPressure(bmp085ReadUP());
-        altitude = bmp085calcAltitude(pressure);
-        //send data with 2 decimal points
-        formFloat(fTemperature, arrFloat);
+       // messiUartTransmitStart();
 
-        msgUART[0] = (uint8_t) (arrFloat[0]);
-        msgUART[1] = (uint8_t) (arrFloat[1] >> 8);
-        msgUART[2] = (uint8_t) (arrFloat[1] & 0x00FF);
+//        sprintf(tempS, "%d", mpu6050AccData[0]);
+//        USARTTransmit('x');
+//        USARTTransmitString(tempS);
+//
+//        sprintf(tempS, "%d", mpu6050AccData[1]);
+//        USARTTransmit('y');
+//        USARTTransmitString(tempS);
+//
+//        sprintf(tempS, "%d", mpu6050AccData[2]);
+//        USARTTransmit('z');
+//        USARTTransmitString(tempS);
+        //
 
-        msgUART[3] = (uint8_t) (arrFloat[2] >> 8);
-        msgUART[4] = (uint8_t) (arrFloat[2] & 0x00FF);
+        temp = bmp085GetTemperature(bmp085ReadUT());
+        sprintf(tempS, "%d", temp);
+        USARTTransmit('x');
+        USARTTransmitString(tempS);
+        //;
+        //pressure = bmp085GetPressure(bmp085ReadUP());
+        //altitude = bmp085calcAltitude(pressure);
+        //mpu6050ReadAcc();
 
-        formFloat(altitude, arrFloat);
+        //formFloat(temperature, arrFloat);
+        //msgUART[0] = (uint8_t) (temp >> 8);
+       // msgUART[1] = (uint8_t) (temp & 0x00FF);
+        //sprintf(tempS, "%d", temperature);
+        //USARTTransmit('t');
+        //USARTTransmitString(tempS);
 
-        msgUART[5] = (uint8_t) (arrFloat[0]);
-        msgUART[6] = (uint8_t) (arrFloat[1] >> 8);
-        msgUART[7] = (uint8_t) (arrFloat[1] & 0x00FF);
+//        msgUART[0] = (uint8_t) (arrFloat[0]);
+//        msgUART[1] = (uint8_t) (arrFloat[1] >> 8);
+//        msgUART[2] = (uint8_t) (arrFloat[1] & 0x00FF);
+//
+//        msgUART[3] = (uint8_t) (arrFloat[2] >> 8);
+//        msgUART[4] = (uint8_t) (arrFloat[2] & 0x00FF);
+//
+//        //formFloat(altitude, arrFloat);
+//
+//        msgUART[5] = (uint8_t) (arrFloat[0]);
+//        msgUART[6] = (uint8_t) (arrFloat[1] >> 8);
+//        msgUART[7] = (uint8_t) (arrFloat[1] & 0x00FF);
+//
+//        msgUART[8] = (uint8_t) (arrFloat[2] >> 8);
+//        msgUART[9] = (uint8_t) (arrFloat[2] & 0x00FF);
+//        //todo: which axis?
+//        //formFloat(mpu6050CalcAccData[2], arrFloat);
+//
+//        msgUART[10] = (uint8_t) (arrFloat[0]);
+//        msgUART[11] = (uint8_t) (arrFloat[1] >> 8);
+//        msgUART[12] = (uint8_t) (arrFloat[1] & 0x00FF);
+//
+//        msgUART[13] = (uint8_t) (arrFloat[2] >> 8);
+//        msgUART[14] = (uint8_t) (arrFloat[2] & 0x00FF);
 
-        msgUART[8] = (uint8_t) (arrFloat[2] >> 8);
-        msgUART[9] = (uint8_t) (arrFloat[2] & 0x00FF);
+//
+//        leftWheelFwd = ((gCommand == 5) || (gCommand == 7)) ? 1 : 0;
+//        leftWheelBck = ((gCommand == 9) || (gCommand == 11)) ? 1 : 0;
+//        rightWheelFwd = ((gCommand == 6) || (gCommand == 7)) ? 1 : 0;
+//        rightWheelBck = ((gCommand == 10) || (gCommand == 11)) ? 1 : 0;
+//
+//        msgUART[15] = (gSpeed & 0x0C) >> 2;
+//
+//        msgUART[16] = gSpeed & 0x03;
+//
+//        switch (gSpeed & 0x0C) {
+//            case 0:
+//                frequencyA = 16000;
+//                break;
+//            case 4:
+//                frequencyA = 32000;
+//                break;
+//            case 8:
+//                frequencyA = 48000;
+//                break;
+//            case 12:
+//                frequencyA = 65000;
+//                break;
+//            default:
+//                frequencyA = 0;
+//                break;
+//        }
+//
+//        switch (gSpeed & 0x03) {
+//            case 0:
+//                frequencyB = 16000;
+//                break;
+//            case 1:
+//                frequencyB = 32000;
+//                break;
+//            case 2:
+//                frequencyB = 48000;
+//                break;
+//            case 3:
+//                frequencyB = 65000;
+//                break;
+//            default:
+//                frequencyB = 0;
+//                break;
+//        }
+//
+//        //MotorControl(leftWheelFwd, leftWheelBck, frequencyA, rightWheelFwd, rightWheelBck, frequencyB);
+//        if (gCommand == 32) {
+//            if (gSendEEPROMDataIdx < 400) {
+//                msgUART[19] = gSensorUByteData[gSendEEPROMDataIdx * 2];
+//                msgUART[20] = gSensorUByteData[(gSendEEPROMDataIdx * 2) + 1];
+//                gSendEEPROMDataIdx++;
+//            }
+//        } else {
+//            msgUART[19] = 0;
+//            msgUART[20] = 0;
+//        }
+//
+//        msgUART[21] = gTimerPremCounter;
+//        msgUART[22] = gTimerCounter;
+//
+        MotorControl(1, 0, 65000, 1, 0, 65000);
+//
+        _delay_ms(10000);
+//
+        MotorControl(1, 0, 65000, 0, 0, 65000);
+//
+        _delay_ms(10000);
+//
+        MotorControl(0, 0, 65000, 1, 0, 65000);
+//
+        _delay_ms(10000);
+//
+        MotorControl(0, 1, 65000, 0, 1, 65000);
+//
+        _delay_ms(10000);
+//
+        MotorControl(0, 0, 65000, 0, 0, 65000);
+//
+        _delay_ms(5000);
 
-        formFloat(adxl345CalcAccData[1], arrFloat);
+        //messiUartTransmitString(msgUART, 38);
 
-        msgUART[10] = (uint8_t) (arrFloat[0]);
-        msgUART[11] = (uint8_t) (arrFloat[1] >> 8);
-        msgUART[12] = (uint8_t) (arrFloat[1] & 0x00FF);
-
-        msgUART[13] = (uint8_t) (arrFloat[2] >> 8);
-        msgUART[14] = (uint8_t) (arrFloat[2] & 0x00FF);
-        //wheels command translation into motor driver commands
-        leftWheelFwd = ((gCommand == 5) || (gCommand == 7)) ? 1 : 0;
-        leftWheelBck = ((gCommand == 9) || (gCommand == 11)) ? 1 : 0;
-        rightWheelFwd = ((gCommand == 6) || (gCommand == 7)) ? 1 : 0;
-        rightWheelBck = ((gCommand == 10) || (gCommand == 11)) ? 1 : 0;
-
-        msgUART[15] = (gSpeed & 0x0C) >> 2;
-
-        msgUART[16] = gSpeed & 0x03;
-
-        switch (gSpeed & 0x03) {
-            case 0:
-                frequencyA = 16000;
-                break;
-            case 1:
-                frequencyA = 32000;
-                break;
-            case 2:
-                frequencyA = 48000;
-                break;
-            case 3:
-                frequencyA = 65000;
-                break;
-            default:
-                frequencyA = 0;
-                break;
-        }
-
-
-        switch (gSpeed & 0x0C) {
-            case 0:
-                frequencyB = 16000;
-                break;
-            case 4:
-                frequencyB = 32000;
-                break;
-            case 8:
-                frequencyB = 48000;
-                break;
-            case 12:
-                frequencyB = 65000;
-                break;
-            default:
-                frequencyB = 0;
-                break;
-        }
-
-
-        MotorControl(leftWheelFwd, leftWheelBck, frequencyA, rightWheelFwd, rightWheelBck, frequencyB);
-        if (gCommand == 32) {
-            if (gSendEEPROMDataIdx < gTimeCountSum) {
-                msgUART[19] = gSensorUByteData[gSendEEPROMDataIdx * 2];
-                msgUART[20] = gSensorUByteData[(gSendEEPROMDataIdx * 2) + 1];
-                msgUART[21] = gSensorTempData[gSendEEPROMDataIdx];
-                gSendEEPROMDataIdx++;
-            }
-            else {
-                msgUART[19] = 0;
-                msgUART[20] = 0;
-                msgUART[21] = 0;
-            }
-        } else {
-            msgUART[19] = 0;
-            msgUART[20] = 0;
-            msgUART[21] = 0;
-        }
-
-
-
-        msgUART[22] = (uint8_t) (gTimerPremCounter >> 8);
-        msgUART[23] = (uint8_t) (gTimerPremCounter & 0x00FF);
-        msgUART[24] = (uint8_t) (gTimerCounter >> 8);
-        msgUART[25] = (uint8_t) (gTimerCounter & 0x00FF);
-        msgUART[26] = gCommand;
-
-        msgUART[27] = (uint8_t) (gSendEEPROMDataIdx >> 8);
-        msgUART[28] = (uint8_t) (gSendEEPROMDataIdx & 0x00FF);
-
-
-        messiUartTransmitString(msgUART, 38);
-
-        messiUartTransmitEnd();
+       // messiUartTransmitEnd();
 
     }
 
@@ -387,109 +423,60 @@ void activateHW(void) {
 }
 
 
-void adxl345Init(void) {
-    uint8_t cmdWrite[2] = {adxl345WriteAddr, 0x2D};
-    uint8_t msgWrite[1] = {0x08};
-
-
-    I2CDo(msgWrite, 1, cmdWrite, 2);
-
-
-}
-
-void adxl345SetRange(uint8_t range, uint8_t fullResolution) {
-    uint8_t cmdSetReadingPoint[2] = {adxl345WriteAddr, 0x31};
-    uint8_t msgSetReadingPoint[1] = {0};
-
-    uint8_t cmdRead[1] = {adxl345ReadAddr};
-    uint8_t msgRead[1] = {0};
-
-    uint8_t cmdWrite[2] = {adxl345WriteAddr, 0x31};
+void mpu6050Init(void) {
+    uint8_t cmdWrite[2] = {mpu6050WriteAddr, 0x6B};
     uint8_t msgWrite[1] = {0};
 
-    I2CDo(msgSetReadingPoint, 0, cmdSetReadingPoint, 2);
-    I2CDo(msgRead, 1, cmdRead, 1);
-
-    // Get current data from this register.
-    uint8_t data = msgRead[0];
-
-    // We AND with 0xF4 to clear the bits are going to set.
-    // Clearing ----X-XX
-    data &= 0xF4;
-
-    // By default (range 2) or FullResolution = true, scale is 2G.
-    adxl345Scale = 0.00390625;
-
-    // Set the range bits.
-    switch (range) {
-        case 2:
-            break;
-        case 4:
-            data |= 0x01;
-            if (fullResolution == 0) { adxl345Scale = 0.0078125; }
-            break;
-        case 8:
-            data |= 0x02;
-            if (fullResolution == 0) { adxl345Scale = 0.015625; }
-            break;
-        case 16:
-            data |= 0x03;
-            if (fullResolution == 0) { adxl345Scale = 0.03125; }
-            break;
-        default:
-            break;
-    }
-
-    // Set the full resolution bit.
-    if (fullResolution == 1)
-        data |= 0x08;
-
-    msgWrite[0] = data;
+    uint8_t cmdWriteSens[2] = {mpu6050WriteAddr, 0x1C};
+    //TODO: write 16g
+    uint8_t msgWriteSens[1] = {mpu6050SensivityRegister};
 
     I2CDo(msgWrite, 1, cmdWrite, 2);
+    //write sensivity value
+    I2CDo(msgWriteSens, 1, cmdWriteSens, 2);
+
 }
 
-
-void adxl345BiasCalc(void) {
+void mpu6050BiasCalc(void) {
     int32_t temp_bias_32_data[3] = {0, 0, 0};
 
     //read data 100 times @ 10msec interval and compute average value
-    for (uint8_t count = 0; count < adxl345BiasCycleCnt; count++) {
-        adxl345ReadAcc();
-        temp_bias_32_data[0] += adxl345AccData[0];
-        temp_bias_32_data[1] += adxl345AccData[1];
-        temp_bias_32_data[2] += adxl345AccData[2];
+    for (uint8_t count = 0; count < mpu6050BiasCycleCnt; count++) {
+        mpu6050ReadAcc();
+        temp_bias_32_data[0] += mpu6050AccData[0];
+        temp_bias_32_data[1] += mpu6050AccData[1];
+        temp_bias_32_data[2] += mpu6050AccData[2];
         _delay_ms(10);
 
     }
 
-    adxl345BiasData[0] = (int16_t) (temp_bias_32_data[0] / adxl345BiasCycleCnt);
-    adxl345BiasData[1] = (int16_t) (temp_bias_32_data[1] / adxl345BiasCycleCnt);
-    adxl345BiasData[2] = (int16_t) (temp_bias_32_data[2] / adxl345BiasCycleCnt);
+    mpu6050BiasData[0] = (int16_t) (temp_bias_32_data[0] / mpu6050BiasCycleCnt);
+    mpu6050BiasData[1] = (int16_t) (temp_bias_32_data[1] / mpu6050BiasCycleCnt);
+    mpu6050BiasData[2] = (int16_t) (temp_bias_32_data[2] / mpu6050BiasCycleCnt);
 
 
 }
 
-void adxl345ReadAcc(void) {
-    uint8_t cmdSetReadingPoint[2] = {adxl345WriteAddr, 0x32};
+void mpu6050ReadAcc(void) {
+    uint8_t cmdSetReadingPoint[2] = {mpu6050WriteAddr, 0x3B};
     uint8_t msgSetReadingPoint[1] = {0};
 
-    uint8_t cmdRead[1] = {adxl345ReadAddr};
-    uint8_t msgRead[6] = {0};
+    uint8_t cmdRead[1] = {mpu6050ReadAddr};
+    uint8_t msgRead[14] = {0};
 
     I2CDo(msgSetReadingPoint, 0, cmdSetReadingPoint, 2);
-    I2CDo(msgRead, 6, cmdRead, 1);
+    I2CDo(msgRead, 14, cmdRead, 1);
 
-    adxl345AccData[0] = (msgRead[1] << 8) | msgRead[0];
-    adxl345AccData[1] = (msgRead[3] << 8) | msgRead[2];
-    adxl345AccData[2] = (msgRead[5] << 8) | msgRead[4];
+    mpu6050AccData[0] = (msgRead[0] << 8) | msgRead[1];
+    mpu6050AccData[1] = (msgRead[2] << 8) | msgRead[3];
+    mpu6050AccData[2] = (msgRead[4] << 8) | msgRead[5];
 
 }
 
-void adxl345CalcAcc(void) {
-    adxl345CalcAccData[0] = ((float) (adxl345AccData[0])) * adxl345Scale;
-    adxl345CalcAccData[1] = ((float) (adxl345AccData[1])) * adxl345Scale;
-    adxl345CalcAccData[2] = ((float) (adxl345AccData[2])) * adxl345Scale;
+void mpu6050CalcAcc(void) {
+    mpu6050CalcAccData[0] = (mpu6050AccData[0] - mpu6050BiasData[0]) / mpu6050Sensivity;
+    mpu6050CalcAccData[1] = (mpu6050AccData[1] - mpu6050BiasData[1]) / mpu6050Sensivity;
+    mpu6050CalcAccData[2] = (mpu6050AccData[2] - mpu6050BiasData[2]) / mpu6050Sensivity;
 }
 
 void bmp085Calibration(void) {
@@ -678,7 +665,7 @@ void USARTinit(void) {
     //UBRR=f/(16*band)-1 f=12MHz band=9600,
     UBRR0H = 0;
     UBRR0L = 77;
-    //UBRR0L = 6;
+    //UBRR0L = 2;
     //normal async duplex mode
     UCSR0A = UCSR0A & ~(1 << U2X0) & ~(1 << MPCM0);
 
@@ -780,7 +767,6 @@ void USARTTransmit(unsigned char data) {
 void I2CInit(void) {
 
     TWBR = 0x07;    // Set bit rate register (Baudrate).
-    //TWBR = 0x02;
     TWDR = 0xFF; // Default content = SDA released.
     TWCR = TWCR | (1 << TWEN);
     TWCR = TWCR & ~(1 << TWINT) & ~(1 << TWSTA) & ~(1 << TWSTO) & ~(1 << TWEA);
@@ -864,91 +850,71 @@ void I2CDo(uint8_t *msgPtr, uint8_t msgSize, uint8_t *readOrWriteCommand, uint8_
 }
 
 //Timer interrupt
-//executes every 100ms. First it loops 2 minutes to safeguard data recording start at the right time.
-//After 2 mins it starts saving sensor data into the arrays
-
-//Data is saved a bit differently to make sure it consumes as less memory as possible.
-//Acceleration can be multiplied by 10, since the maximum expected acceleration shall not exceed 16g.
-//this way we can save integer part and one decimal sign in one byte.
-//Altitude requirement is to have +-3 meters error, so we can save data simply into one byte.
-//Temperature shall be saved with +-0.2 degrees, so we substracting -100 units from 0.1C measurements
-//(flight was in July).
 ISR(TIMER1_OVF_vect) {
-    uint8_t lAcceleration, lAltitude, lTemperature;
+
     //Resets counter to 100ms base
     TCNT1 = TIMERBASE;
-
-
-    if (gTimerPremCounter >= 50) {
-        if (gTimerCounter <  gTimeCountSum) {
-
-            lAcceleration = (uint8_t)((int16_t)(adxl345CalcAccData[1])*10);
-
-            lAltitude = (uint8_t)altitude;
-            lTemperature = (uint8_t)(temperature - 100);
-
-            gSensorUByteData[gTimerCounter * 2] = (uint8_t) (lAcceleration);
-            gSensorUByteData[(gTimerCounter * 2) + 1] = (uint8_t) (lAltitude);
-            gSensorTempData[gTimerCounter] = (uint8_t) (lTemperature);
-            gTimerCounter++;
-        } else {
-            //save it once in the end of the counting into EEPROM
-            //since there is no place for temperature data we don't save temperature
-            if (gTimerCounter == gTimeCountSum) {
-                write_eeprom_array(gEEPROMUByteArray, gSensorUByteData, sizeof(gEEPROMUByteArray));
-                gTimerCounter++;
-            }
-        }
-    } else {
-        gTimerPremCounter++;
-    }
+//    //if preliminary counter is more than 2 minutes, otherwise wait for 2 mins
+//    if (gTimerPremCounter >= 1200) {
+//        if (gTimerCounter < 400) {
+//            gSensorUByteData[gTimerCounter * 2] = (uint8_t) temperature;
+//            gSensorUByteData[(gTimerCounter * 2) + 1] = (uint8_t) altitude;
+//            //TODO: which axis?
+//            gSensor2ByteData[gTimerCounter] = (int16_t) (mpu6050CalcAccData[2] * 10);
+//            //USARTTransmit((unsigned char) gSensorUByteData[gTimerCounter * 2]);
+//            //USARTTransmit((unsigned char) gSensorUByteData[(gTimerCounter * 2) + 1]);
+//            gTimerCounter++;
+//        } else {
+//            if (gTimerCounter == 400) {
+//                //USARTTransmit((unsigned char)(3));
+//                write_eeprom_array(gEEPROMUByteArray, gSensorUByteData, sizeof(gEEPROMUByteArray));
+//                gTimerCounter++;
+//            }
+//        }
+//    } else {
+//        gTimerPremCounter++;
+//    }
 
 
 }
 
-//TODO: make all commands check by bit mask
-//Interrupt from our communication device (XBEE)
-//We send data from PC via XBEE
-//UART interrupt receives commands (1 byte) and depending
-//on the value command is interpreted
+
 ISR(USART_RX_vect) {
 
 
     uint8_t msgReceive = 0;
 
     msgReceive = USARTReceive();
-    //assign command or speed depending of the value received
+
     if (msgReceive < 128) {
         gCommand = msgReceive;
     } else {
         gSpeed = msgReceive;
     }
-
-    //command execution
-    //activate hotwire function
-    if ((gCommand & 0x40) == 64) {
+    if (gCommand == 64) {
         activateHW();
     }
-
-    //initialize motor, PWM for motor control if back or forward commands given
-    if (((gCommand & 0x08) == 8) || ((gCommand & 0x04) == 4)) {
-        gTimerCounter = 0;
-        gTimerPremCounter = 0;
+    //4,8
+    if (((gCommand == 5) || (gCommand == 6) || (gCommand == 7) || (gCommand == 10) || (gCommand == 11)) &&
+        (gSwitchedTimer == 0)) {
         MotorInit();
+        gSwitchedTimer = 1;
+
     }
 
-    if ((gCommand & 0x10) == 16) {
+    if ((gCommand == 16) && (gSwitchedTimer == 1)) {
+        timerInit();
+        gSwitchedTimer = 0;
         gTimerCounter = 0;
         gTimerPremCounter = 0;
-        timerInit();
+
     }
 
-
-    if ((gCommand & 0x20) == 32) {
+    if (gCommand == 32) {
+       // read_eeprom_array(gEEPROMUByteArray, gSensorUByteData, sizeof(gEEPROMUByteArray));
         gSendEEPROMDataIdx = 0;
-        read_eeprom_array(gEEPROMUByteArray, gSensorUByteData, sizeof(gEEPROMUByteArray));
-
     }
+
 
 
 }

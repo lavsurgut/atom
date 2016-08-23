@@ -104,6 +104,7 @@
                                     </button>
                                 </div>
                             </div>
+                                    <button type="button" id="btn_hw" class="btn btn-danger">Activate HotWire</button>
                             <div id="outputCommand">COMMAND: 00000000</div>
                             <div id="outputSpeed">SPEED: 10000000</div>
                             <div id="outputLog"></div>

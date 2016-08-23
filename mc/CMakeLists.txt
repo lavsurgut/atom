@@ -58,10 +58,13 @@ set(AVR_UPLOADTOOL_PORT usb)
 ##########################################################################
 # AVR and fuses needs to be set
 ##########################################################################
-set(AVR_MCU atmega328p)
-set(AVR_H_FUSE 0xd9)
+#set(AVR_MCU atmega328p)
+set(AVR_MCU atmega168)
+#set(AVR_H_FUSE 0xd9)
+set(AVR_H_FUSE 0xdd)
 set(AVR_L_FUSE 0xf7)
-
+#set(AVR_L_FUSE 0x62)
+set(AVR_E_FUSE 0xf9)
 ### END TOOLCHAIN SETUP AREA #############################################
 
 
@@ -96,6 +99,7 @@ endif(NOT CMAKE_BUILD_TYPE)
 # needs to be defined for AVR toolchain
 ##########################################################################
 set(MCU_SPEED "12000000")
+#set(MCU_SPEED "1000000")
 
 ##########################################################################
 # some cmake cross-compile necessities
